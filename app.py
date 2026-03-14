@@ -11,7 +11,7 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify, g, send_from_directory
+from flask import Flask, request, jsonify, g, send_from_directory, Response
 
 try:
     import jwt as pyjwt
@@ -40,20 +40,44 @@ def add_cors(response):
 def handle_options(path): return jsonify({}), 200
 
 # ── SERVE FRONTEND ─────────────────────────────────────────
+import mimetypes
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def read_file(filename):
+    filepath = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(filepath):
+        return None, None
+    mime, _ = mimetypes.guess_type(filepath)
+    if not mime:
+        if filename.endswith('.js'):  mime = 'application/javascript'
+        elif filename.endswith('.css'): mime = 'text/css'
+        else: mime = 'text/plain'
+    with open(filepath, 'rb') as f:
+        return f.read(), mime
+
 @app.route("/")
 def serve_index():
-    """Serve the frontend index.html"""
-    return send_from_directory(app.static_folder, "index.html")
+    data, mime = read_file("index.html")
+    if data is None:
+        return "index.html not found", 404
+    from flask import Response
+    return Response(data, mimetype='text/html')
 
 @app.route("/<path:path>")
 def serve_static(path):
-    """Serve static files or fallback to index.html"""
+    # API routes handled by Flask routes above
     if path.startswith("api/"):
         return jsonify({"error": "Not found"}), 404
-    try:
-        return send_from_directory(app.static_folder, path)
-    except Exception:
-        return send_from_directory(app.static_folder, "index.html")
+    data, mime = read_file(path)
+    if data is None:
+        # SPA fallback
+        data, mime = read_file("index.html")
+        if data is None:
+            return "Not found", 404
+        mime = 'text/html'
+    from flask import Response
+    return Response(data, mimetype=mime)
 
 def get_db():
     if "db" not in g:
